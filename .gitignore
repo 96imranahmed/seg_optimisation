@@ -1,0 +1,45 @@
+# log files
+logs*
+
+# output files
+*.csv
+
+# Image files
+*.png
+*.jpg
+
+# Video files
+*.mp4
+*.avi
+*.mjpg
+
+# Vim swap files
+*.*.sw*
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app

@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<opencv_storage>
+ <!-- resumed -->
+
+<Models_Path>"./models"</Models_Path>
+ <!-- resumed -->
+
+<Use_Camera>0</Use_Camera>
+ <!-- resumed -->
+
+<Camera_ID>0</Camera_ID>
+ <!-- resumed -->
+
+<Video_Path>"videos/test_vid.avi"</Video_Path>
+
+<Camera_Res_X>1920</Camera_Res_X>
+ <!-- resumed -->
+
+<Camera_Res_Y>1080</Camera_Res_Y>
+ <!-- resumed -->
+
+<Write_Log>0</Write_Log>
+ <!-- resumed -->
+
+<Record_Video>0</Record_Video>
+ <!-- resumed -->
+
+<Take_Screenshots>0</Take_Screenshots>
+ <!-- resumed -->
+
+<Display_GUI>1</Display_GUI>
+ <!-- resumed -->
+
+<Display_FPS>1</Display_FPS>
+ <!-- resumed -->
+
+<Verbosity>2</Verbosity>
+ <!-- resumed -->
+
+<Rotation>0</Rotation>
+ <!-- resumed -->
+
+<Crop_Edges>0</Crop_Edges>
+ <!-- resumed -->
+
+<Scaling_Factor>1.</Scaling_Factor>
+ <!-- resumed -->
+
+<Histogram_Equalization>0</Histogram_Equalization>
+ <!-- resumed -->
+
+<Is_Image_List>0</Is_Image_List>
+</opencv_storage>
