@@ -14,6 +14,7 @@ bool contour_overlay = false;
 int ch_des = 2;
 const std::string ch_val[] = {"Background", "Cyclists", "Cars", "Pedestrians", "Trucks/Vans/Buses", "Buses", "??? UNKNOWN", "??? UNKNOWN" };
 const int canny_thresh = 200;
+const int contour_thresh = 30.0;
 
 int kbhit(void)
 {
@@ -43,7 +44,7 @@ void key_check()
         if (kbhit()) {
             char cur_char = getchar();
             if (cur_char == 32) {
-				if (pause_check) {
+				if (!pause_check) {
 					std::cout<<"Pausing..."<<std::endl;
 				} else {
 					std::cout<<"Continuing..."<<std::endl;
@@ -60,6 +61,8 @@ void key_check()
 					std::cout<<"De-activating blob detection!"<<std::endl;
 				} else {
 					std::cout<<"Activating blob detection!"<<std::endl;
+					contour_detect = false;
+					contour_overlay = false;
 				}
                 blob_detect = !blob_detect; //Toggle Blob detection
 			} else if (cur_char == 'c') {
@@ -67,6 +70,8 @@ void key_check()
 					std::cout<<"De-activating contour detection!"<<std::endl;
 				} else {
 					std::cout<<"Activating contour detection!"<<std::endl;
+					blob_detect = false;
+					contour_overlay = false;
 				}
 				contour_detect = !contour_detect;
 			} else if (cur_char == 'o') {
@@ -74,6 +79,8 @@ void key_check()
 					std::cout<<"De-activating overlay contour detection!"<<std::endl;
 				} else {
 					std::cout<<"Activating overlay contour detection!"<<std::endl;
+					blob_detect = false;
+					contour_detect = false;
 				}
 				contour_overlay = !contour_overlay;
 			}
@@ -110,14 +117,14 @@ int main()
 				op = segnet.label(image, ch_des);
 			}
 			//Post Processing
-            if (blob_detect && !contour_detect) {
+            if (blob_detect == true && contour_detect == false) {
 				cv::Mat val_out = op.rowRange(ch_des*(op.rows/ch_max), (ch_des + 1)*(op.rows/ch_max));
                 std::vector<cv::KeyPoint> keypoints;
 				cv::Ptr<cv::SimpleBlobDetector> detector = generate_detector();
                 detector->detect(val_out, keypoints);
                 cv::drawKeypoints(val_out, keypoints, op_box, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
                 debug->showFrame(op_box);
-            } else if (contour_detect && !blob_detect) {
+            } else if (contour_detect == true && blob_detect == false) {
 				cv::Mat val_out;
 				cv::Mat val_in = op.rowRange(ch_des*(op.rows/ch_max), (ch_des + 1)*(op.rows/ch_max));
 				cv::Canny( val_in, val_out, canny_thresh, canny_thresh*2, 3 );
@@ -129,7 +136,9 @@ int main()
 				cv::merge(in, 3, out);
 				for( size_t i = 0; i< contours_out.size(); i++ )
 				{
-				   cv::drawContours(out, contours_out, (int)i,  cv::Scalar(255,0,0), 1, cv::LINE_8, cv::noArray(),0,cv::Point(0,0));
+					if (cv::contourArea(contours_out[i]) > contour_thresh) {
+						cv::drawContours(out, contours_out, (int)i,  cv::Scalar(0,255,0), 1, cv::LINE_8, cv::noArray(),0,cv::Point(0,0));
+					}
 				}
 				debug->showFrame(out);
 			}
@@ -141,13 +150,20 @@ int main()
 					cv::Canny( val_in, val_out, canny_thresh, canny_thresh*2, 3 );
 					std::vector<std::vector<cv::Point> > contours_out;
 					cv::findContours(val_out,contours_out, cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
-					std::cout<<"Detected: " << int(contours_out.size()) << " contours" <<std::endl;
+					std::cout<<"Detected: " << int(contours_out.size()) << " contours in background" <<std::endl;
+					cv::Mat out;
+					cv::Mat in[] =  {val_bgd, val_bgd, val_bgd};
+					cv::merge(in, 3, out);
 					for( size_t i = 0; i< contours_out.size(); i++ )
 					{
-					   cv::drawContours(val_bgd, contours_out, (int)i,  cv::Scalar(255,0,0), 1, cv::LINE_8, cv::noArray(),0,cv::Point(0,0));
+						if (cv::contourArea(contours_out[i]) > contour_thresh) {
+							cv::drawContours(out, contours_out, (int)i,  cv::Scalar(255,0,0), 1, cv::LINE_8, cv::noArray(),0,cv::Point(0,0));
+						}
 					}
-				} 
+					debug->showFrame(out);
+				} else {
                 debug->showFrame(val_bgd); 
+				}
             }
         } 
     }
