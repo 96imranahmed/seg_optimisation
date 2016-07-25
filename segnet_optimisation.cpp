@@ -89,9 +89,6 @@ int main()
                 std::vector<cv::KeyPoint> keypoints;
                 detector->detect(op, keypoints);
                 cv::drawKeypoints(op, keypoints, op_box, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-                for (int i = 0; i < keypoints.count(); i++) {
-                 
-                }
                 debug->showFrame(op_box);
             } else {
                 if (pause_check == false) {
