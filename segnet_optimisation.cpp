@@ -52,6 +52,7 @@ void key_check()
         }
     }
 }
+
 cv::Ptr<cv::SimpleBlobDetector> generate_detector()
 {
     cv::SimpleBlobDetector::Params params;
@@ -60,7 +61,7 @@ cv::Ptr<cv::SimpleBlobDetector> generate_detector()
     params.filterByColor = true;
     params.blobColor = 255;
     params.filterByConvexity = true;
-    params.minConvexity = 0.1;
+    params.minConvexity = 0.3;
     params.maxConvexity = 1;
     cv::Ptr<cv::SimpleBlobDetector> detector = cv::SimpleBlobDetector::create(params);
     return detector;
@@ -69,12 +70,12 @@ cv::Ptr<cv::SimpleBlobDetector> generate_detector()
 int main()
 {
     pause_check = false;
-    blob_detect = true;
+    blob_detect = false;
     std::thread first (key_check);
     std::shared_ptr<vivacity::Debug> debug( new vivacity::Debug() );
     std::shared_ptr<vivacity::ConfigManager> cfg_mgr(new vivacity::ConfigManager( debug, "config.xml") );
     vivacity::Segnet segnet( debug, cfg_mgr, "cars_lorries_trucks_model");
-	cv::Mat image;
+    cv::Mat image;
     cv::Mat op;
     cv::Mat op_box;
     cv::Ptr<cv::SimpleBlobDetector> detector = generate_detector();
@@ -88,14 +89,17 @@ int main()
                 std::vector<cv::KeyPoint> keypoints;
                 detector->detect(op, keypoints);
                 cv::drawKeypoints(op, keypoints, op_box, cv::Scalar(0,0,255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+                for (int i = 0; i < keypoints.count(); i++) {
+                 
+                }
                 debug->showFrame(op_box);
             } else {
                 if (pause_check == false) {
                     op = segnet.label(image, ch_des);
                 }
-                debug->showFrame(op);
+                debug->showFrame(op); 
             }
         } 
     }
-    first.join();  
+    first.join(); 
 }
