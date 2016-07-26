@@ -9,10 +9,10 @@
  <!-- resumed -->
 
 <SN_Sampling_Width>384</SN_Sampling_Width> 
- <!-- resumed - 480 -->
+ <!-- resumed - 384,480 -->
  
 <SN_Sampling_Height>256</SN_Sampling_Height>
- <!-- resumed - 360 -->
+ <!-- resumed - 256,360 -->
 
 <SN_Batch_Size>1</SN_Batch_Size>
  <!-- resumed -->
