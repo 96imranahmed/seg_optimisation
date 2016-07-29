@@ -20,7 +20,7 @@ const int canny_thresh = 200;
 const int contour_thresh = 5.0;
 std::vector<int> contour_count_buffer;
 const int buffer_length = 300;
-const int contour_avg_threshold = 15;
+const int contour_avg_threshold = 10;
 const double contour_avg_scalefactor = 2;
 int contour_avg_count = 0;
 
@@ -29,16 +29,16 @@ int kbhit(void)
     struct termios oldt, newt;
     int ch;
     int oldf;
-    tcgetattr(stdin_fileno, &oldt);
+    tcgetattr(STDIN_FILENO, &oldt);
     newt = oldt;
-    newt.c_lflag &= ~(icanon | echo);
-    tcsetattr(stdin_fileno, tcsanow, &newt);
-    oldf = fcntl(stdin_fileno, f_getfl, 0);
-    fcntl(stdin_fileno, f_setfl, oldf | o_nonblock);
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
     ch = getchar();
-    tcsetattr(stdin_fileno, tcsanow, &oldt);
-    fcntl(stdin_fileno, f_setfl, oldf);
-    if (ch != eof) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+    if (ch != EOF) {
 	ungetc(ch, stdin);
 	return 1;
     }
@@ -97,21 +97,21 @@ void key_check()
     }
 }
 
-cv::ptr<cv::simpleblobdetector> generate_detector()
+cv::Ptr<cv::SimpleBlobDetector> generate_detector()
 {
-    cv::simpleblobdetector::params params;
-    params.maxthreshold = 256;
-    params.minthreshold = 40;
-    params.filterbycolor = true;
+    cv::SimpleBlobDetector::Params params;
+    params.maxThreshold = 256;
+    params.minThreshold = 40;
+    params.filterByColor = true;
     if (ch_des == 0) {
-	params.blobcolor = 0;
+	params.blobColor = 0;
     } else {
-	params.blobcolor = 255;
+	params.blobColor = 255;
     };
-    params.filterbyconvexity = true;
-    params.minconvexity = 0.3;
-    params.maxconvexity = 1;
-    return cv::simpleblobdetector::create(params);
+    params.filterByConvexity = true;
+    params.minConvexity = 0.3;
+    params.maxConvexity = 1;
+    return cv::SimpleBlobDetector::create(params);
 }
 
 void error_detect_simple(int val_in)
@@ -154,19 +154,20 @@ void error_detect_simple(int val_in)
     }
 }
 
-void error_detect_complex(std::vector<std::vector<cv::point> > fgnd, std::vector<std::vector<cv::point> > bgnd)
+
+void error_detect_complex(std::vector<std::vector<cv::Point> > fgnd, std::vector<std::vector<cv::Point> > bgnd)
 {
 }
 
 int main()
 {
     std::thread first(key_check);
-    std::shared_ptr<vivacity::debug> debug(new vivacity::debug());
-    std::shared_ptr<vivacity::configmanager> cfg_mgr(new vivacity::configmanager(debug, "config.xml"));
-    vivacity::segnet segnet(debug, cfg_mgr, "cars_lorries_trucks_model");
-    cv::mat image;
-    cv::mat op;
-    cv::mat op_box;
+    std::shared_ptr<vivacity::Debug> debug(new vivacity::Debug());
+    std::shared_ptr<vivacity::ConfigManager> cfg_mgr(new vivacity::ConfigManager(debug, "config.xml"));
+    vivacity::Segnet segnet(debug, cfg_mgr, "cars_lorries_trucks_model");
+    cv::Mat image;
+    cv::Mat op;
+    cv::Mat op_box;
     while (1) {
 		while (debug->procinput(image, pause_check)) {
 			if (pause_check == false) {
@@ -174,78 +175,77 @@ int main()
 			}
 			// post processing
 			if (blob_detect == true && contour_detect == false) {
-			cv::mat val_out = op.rowrange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
-			std::vector<cv::keypoint> keypoints;
-			cv::ptr<cv::simpleblobdetector> detector = generate_detector();
+			cv::Mat val_out = op.rowRange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
+			std::vector<cv::KeyPoint> keypoints;
+			cv::Ptr<cv::SimpleBlobDetector> detector = generate_detector();
 			detector->detect(val_out, keypoints);
-			cv::drawkeypoints(
-				val_out, keypoints, op_box, cv::scalar(0, 0, 255), cv::drawmatchesflags::draw_rich_keypoints);
-			debug->showframe(op_box);
+			cv::drawKeypoints(val_out, keypoints, op_box, cv::Scalar(0, 0, 255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+			debug->showFrame(op_box);
 			} else if (contour_detect == true && blob_detect == false) {
-			cv::mat val_out;
-			cv::mat val_in = op.rowrange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
-			cv::canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
-			std::vector<std::vector<cv::point> > contours_out;
-			cv::findcontours(val_out, contours_out, cv::retr_external, cv::chain_approx_none, cv::point(0, 0));
-			cv::mat out;
-			cv::mat in[] = { val_in, val_in, val_in };
+			cv::Mat val_out;
+			cv::Mat val_in = op.rowRange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
+			cv::Canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
+			std::vector<std::vector<cv::Point> > contours_out;
+			cv::findContours(val_out, contours_out, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
+			cv::Mat out;
+			cv::Mat in[] = { val_in, val_in, val_in };
 			cv::merge(in, 3, out);
 			int val_count = 0;
 			for (size_t i = 0; i < contours_out.size(); i++) {
-				if (cv::contourarea(contours_out[i]) > contour_thresh) {
-				cv::drawcontours(out,
+				if (cv::contourArea(contours_out[i]) > contour_thresh) {
+				cv::drawContours(out,
 								 contours_out,
 								 (int)i,
-								 cv::scalar(0, 255, 0),
+								 cv::Scalar(0, 255, 0),
 								 1,
-								 cv::line_8,
-								 cv::noarray(),
+								 cv::LINE_8,
+								 cv::noArray(),
 								 0,
-								 cv::point(0, 0));
+								 cv::Point(0, 0));
 				val_count++;
 				}
 			}
 			error_detect_simple(val_count);
-			debug->showframe(out);
+			debug->showFrame(out);
 			} else {
-			cv::mat val_bgd = op.rowrange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
+			cv::Mat val_bgd = op.rowRange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
 			if (contour_overlay) {
-				cv::mat val_out;
-				cv::mat val_in = op.rowrange(0, (op.rows / ch_max));
-				cv::canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
-				std::vector<std::vector<cv::point> > contours_out;
-				cv::findcontours(val_out, contours_out, cv::retr_external, cv::chain_approx_none, cv::point(0, 0));
-				std::cout << "detected: " << int(contours_out.size()) << " contours in background" << std::endl;
-				cv::mat out;
-				cv::mat in[] = { val_bgd, val_bgd, val_bgd };
+				cv::Mat val_out;
+				cv::Mat val_in = op.rowRange(0, (op.rows / ch_max));
+				cv::Canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
+				std::vector<std::vector<cv::Point> > contours_out;
+				cv::findContours(val_out, contours_out, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
+				std::cout << "detected: " << contours_out.size() << " contours in background" << std::endl;
+				cv::Mat out;
+				cv::Mat in[] = { val_bgd, val_bgd, val_bgd };
 				cv::merge(in, 3, out);
 				int val_count = 0;
 				for (size_t i = 0; i < contours_out.size(); i++) {
-				if (cv::contourarea(contours_out[i]) > contour_thresh) {
-					cv::drawcontours(out,
+				if (cv::contourArea(contours_out[i]) > contour_thresh) {
+					cv::drawContours(out,
 									 contours_out,
 									 (int)i,
-									 cv::scalar(255, 0, 0),
+									 cv::Scalar(255, 0, 0),
 									 1,
-									 cv::line_8,
-									 cv::noarray(),
+									 cv::LINE_8,
+									 cv::noArray(),
 									 0,
-									 cv::point(0, 0));
+									 cv::Point(0, 0));
 					val_count++;
 				}
 				}
 				if (true) {
 				// now process contours for background image
-				cv::mat val_out;
-				cv::canny(val_bgd, val_out, canny_thresh, canny_thresh * 2, 3);
-				std::vector<std::vector<cv::point> > contours_out_fgnd;
-				cv::findcontours(
-					val_out, contours_out_fgnd, cv::retr_external, cv::chain_approx_none, cv::point(0, 0));
+				cv::Mat val_out;
+				cv::Canny(val_bgd, val_out, canny_thresh, canny_thresh * 2, 3);
+				std::vector<std::vector<cv::Point> > contours_out_fgnd;
+				cv::findContours(
+					val_out, contours_out_fgnd, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
 				error_detect_complex(contours_out_fgnd, contours_out);
 				}
-				debug->showframe(out);
+				debug->showFrame(out);
 			} else {
-				debug->showframe(val_bgd);
+				debug->showFrame(val_bgd);
 			}
 			}
 		}
