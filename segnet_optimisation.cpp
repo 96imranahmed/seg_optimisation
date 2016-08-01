@@ -6,24 +6,41 @@
 #include <fcntl.h>
 #include "opencv2/opencv.hpp"
 
+// General constants
 const int ch_max = 8;
+const std::vector<std::string> ch_val = { "background",        "cyclists", "cars",        "pedestrians",
+                                          "trucks/vans/buses", "buses",    "??? unknown", "??? unknown" };
+
+//Contour processing constants
+const int canny_thresh = 150;
+const double contour_min_area_filter = 20.0;
+const double max_contour_dist = 5.0;
+
+// Contour self-correction vars and constants
+const int buffer_length = 300;
+const int contour_avg_threshold = 8;
+const double contour_avg_scalefactor = 1.5;
+
+// Complex contour self-correction vars and constants
+const double min_contour_area_bgd = 200.0;
+const double max_area_threshold = 0.9;
+const double min_area_threshold = 0.3;
+const double min_point_threshold = 0.99;
+const double min_contour_area_fgd = 30.0;
+const double area_confidence_threshold_min = 0.1;
+const double area_confidence_threshold_max = 0.9;
+
+// Required Global Variables
+cv::Mat image;
+cv::Mat segnet_output;
+std::vector<int> contour_count_buffer;
 bool pause_check = false;
 bool blob_detect = false;
 bool contour_detect = false;
 bool contour_overlay = false;
+bool threshold_overlay = false;
 int ch_des = 2;
-const std::vector<std::string> ch_val = { "background",        "cyclists", "cars",        "pedestrians",
-                                          "trucks/vans/buses", "buses",    "??? unknown", "??? unknown" };
-
-// Contour self-correction vars and constants
-const int canny_thresh = 200;
-const double contour_thresh = 5.0;
-std::vector<int> contour_count_buffer;
-const int buffer_length = 300;
-const int contour_avg_threshold = 10;
-const double contour_avg_scalefactor = 2;
 int contour_avg_count = 0;
-// Complex contour self-correction vars and constants
 
 int kbhit(void)
 {
@@ -71,6 +88,7 @@ void key_check()
 		    std::cout << "activating blob detection!" << std::endl;
 		    contour_detect = false;
 		    contour_overlay = false;
+		   	threshold_overlay = false;
 		    contour_count_buffer.clear();
 		}
 		blob_detect = !blob_detect; // toggle blob detection
@@ -81,6 +99,7 @@ void key_check()
 		    std::cout << "activating contour detection!" << std::endl;
 		    blob_detect = false;
 		    contour_overlay = false;
+		    threshold_overlay = false;
 		    contour_count_buffer.clear();
 		}
 		contour_detect = !contour_detect;
@@ -91,11 +110,60 @@ void key_check()
 		    std::cout << "activating overlay contour detection!" << std::endl;
 		    blob_detect = false;
 		    contour_detect = false;
+		    threshold_overlay = false;
+		    contour_count_buffer.clear();
 		}
 		contour_overlay = !contour_overlay;
+	    } else if (cur_char == 't' || cur_char == 'T') {
+		if (threshold_overlay) {
+		    std::cout << "de-activating threshold/histogram detection!" << std::endl;
+		} else {
+		    std::cout << "activating threshold/histogram detection!" << std::endl;
+		    blob_detect = false;
+		    contour_detect = false;
+		    contour_overlay = false;
+		    contour_count_buffer.clear();
+		}
+		threshold_overlay = !threshold_overlay;
 	    }
 	}
     }
+}
+
+std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> > output_contours(cv::Mat &val_in) {
+	cv::Mat val_out;
+	cv::Canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
+	std::vector<std::vector<cv::Point> > contours;
+	std::vector<cv::Vec4i> hierarchy;
+	cv::findContours(val_out, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_TC89_KCOS, cv::Point(0, 0));
+	for (int i = 0; i < contours.size(); i++) {
+		std::vector<cv::Point> cur_contour;
+		cv::approxPolyDP(contours[i], cur_contour, max_contour_dist, true);
+		contours[i] = cur_contour;
+	}
+	//std::cout << "detected: " << contours.size() << " contours in background" << std::endl;
+	return std::make_tuple(contours, hierarchy);
+}
+
+double mean(cv::Mat &mat_in){
+	cv::Scalar mean_val = cv::mean(mat_in);
+	return (double)mean_val.val[0]/255.0;
+}
+
+cv::Mat image_from_rect(std::vector<cv::Point> cur_contour) {
+	cv::Mat src =  segnet_output.rowRange(ch_des * (segnet_output.rows / ch_max), (ch_des + 1) * (segnet_output.rows / ch_max));
+	cv::RotatedRect rect = cv::minAreaRect(cur_contour);
+	cv::Mat m, rotated, cropped;
+	float angle = rect.angle;
+	cv::Size rect_size = rect.size;
+	if (rect.angle < -45.0) {
+		angle += 90.0;
+		std::swap(rect_size.width, rect_size.height);
+	}
+	m = cv::getRotationMatrix2D(rect.center, angle, 1.0);
+	cv::warpAffine(src, rotated, m, src.size(), cv::INTER_CUBIC);
+	cv::getRectSubPix(rotated, rect_size, rect.center, cropped);
+	return cropped;
 }
 
 cv::Ptr<cv::SimpleBlobDetector> generate_detector()
@@ -118,82 +186,94 @@ cv::Ptr<cv::SimpleBlobDetector> generate_detector()
 void error_detect_simple(int val_in)
 {
     if (!pause_check) {
-	if (contour_count_buffer.size() > buffer_length) {
-	    contour_count_buffer.erase(contour_count_buffer.begin());
-	    contour_count_buffer.push_back(val_in);
-	} else {
-	    contour_count_buffer.push_back(val_in);
-	}
-	/*
-	for (int i = 0; i < contour_count_buffer.size(); i++) {
-	                for (int j = 0; j < contour_count_buffer[i]; j++) {
-	                                std::cout << "*";
-	                }
-	                std::cout << std::endl;
-	}
-	std::cout << "----------------------------------------------" << std::endl;
-	*/
-	if (contour_count_buffer.size() > 2) {
-	    double m = std::accumulate(std::begin(contour_count_buffer), (std::end(contour_count_buffer) - 1), 0.0) /
-	               (contour_count_buffer.size() - 1);
-	    if ((double)contour_count_buffer.back() > (m * contour_avg_scalefactor)) {
-		contour_avg_count++;
-	    } else if (contour_avg_count < 2) {
-		contour_avg_count = 0;
-	    } else {
-		contour_avg_count--;
-	    }
-	    // std::cout<<contour_avg_count<<std::endl;
-	}
-	if (contour_avg_count > contour_avg_threshold) {
-	    contour_count_buffer.clear();
-	    contour_avg_count = 0;
-	    pause_check = true;
-	    std::cout << "erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des]
-	              << ") detected ... pausing" << std::endl;
-	}
+		if (contour_count_buffer.size() > buffer_length) {
+		    contour_count_buffer.erase(contour_count_buffer.begin());
+		    contour_count_buffer.push_back(val_in);
+		} else {
+		    contour_count_buffer.push_back(val_in);
+		}
+		/*
+		for (int i = 0; i < contour_count_buffer.size(); i++) {
+		                for (int j = 0; j < contour_count_buffer[i]; j++) {
+		                                std::cout << "*";
+		                }
+		                std::cout << std::endl;
+		}
+		std::cout << "----------------------------------------------" << std::endl;
+		*/
+		if (contour_count_buffer.size() > 2) {
+		    double m = std::accumulate(std::begin(contour_count_buffer), (std::end(contour_count_buffer) - 1), 0.0) /
+		               (contour_count_buffer.size() - 1);
+		    if ((double)contour_count_buffer.back() > (m * contour_avg_scalefactor)) {
+			contour_avg_count++;
+		    } else if (contour_avg_count < 2) {
+			contour_avg_count = 0;
+		    } else {
+			contour_avg_count--;
+		    }
+		    // std::cout<<contour_avg_count<<std::endl;
+		}
+		if (contour_avg_count > contour_avg_threshold) {
+		    contour_count_buffer.clear();
+		    contour_avg_count = 0;
+		    pause_check = true;
+		    std::cout << "erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des]
+		              << ") detected ... pausing" << std::endl;
+		}
     }
 }
 
-void error_detect_complex(std::vector<std::vector<cv::Point> > fgnd, std::vector<std::vector<cv::Point> > bgnd)
+std::vector<std::vector<cv::Point> > error_detect_complex(std::vector<std::vector<cv::Point> > fgnd, std::vector<std::vector<cv::Point> > bgnd, std::vector<cv::Vec4i> fgnd_hierarchy, std::vector<cv::Vec4i> bgnd_hierarchy)
 { // Approximate contours
-	if (!pause_check) {
-    const double max_contour_dist = 5.0; // 1 is original, 0 is most coarse approxmation
-    const double min_contour_area_bgd = 30.0;
-    const double max_area_threshold = 0.2;
-    const double min_point_threshold = 0.95;
-	const double min_contour_area_fgd = 10.0;
+	std::vector<std::vector<cv::Point> > op;;
     for (int i = 0; i < bgnd.size(); i++) {
-	std::vector<cv::Point> bgnd_contour;
-	cv::approxPolyDP(bgnd[i], bgnd_contour, max_contour_dist, true);
-	if (cv::contourArea(bgnd_contour) > min_contour_area_bgd) {
-	    for (int j = 0; j < fgnd.size(); j++) {
-			if (cv::pointPolygonTest(bgnd_contour, (fgnd[j])[0], false) > -1) {
-				std::vector<cv::Point> fgnd_contour;
-				cv::approxPolyDP(fgnd[j], fgnd_contour, max_contour_dist, true);
-				if (cv::contourArea(fgnd_contour) > min_contour_area_fgd) {
-					// Check if contour fully within
-					int points_within = 0;
-					for (int k = 0; k < fgnd_contour.size(); k++) {
-						if (cv::pointPolygonTest(bgnd_contour, fgnd_contour[k], false) > -1) {
-						points_within++;
+    	if (bgnd_hierarchy[i][3] == -1) {//i.e. only use topmost contours
+			std::vector<cv::Point> bgnd_contour = bgnd[i];
+			if (cv::contourArea(bgnd_contour) > min_contour_area_bgd) {
+			    for (int j = 0; j < fgnd.size(); j++) {
+			    	std::vector<cv::Point> fgnd_contour = fgnd[j];
+					bool inside = false;
+					for (int l = 0; l < fgnd_contour.size(); l++) {
+						if (!inside) {
+							if (cv::pointPolygonTest(bgnd_contour, (fgnd[j])[l], false) > -1) {
+								inside = true;
+							}
 						}
 					}
-					if (double(points_within / fgnd_contour.size()) > min_point_threshold) {
-						// Now check area
-						if (double(cv::contourArea(fgnd_contour) / cv::contourArea(bgnd_contour)) <
-							max_area_threshold) {
-							pause_check = true;
-							std::cout << "erroneous classification in class: " << int(ch_des) << " ("
-									  << ch_val[ch_des] << ") detected ... pausing" << std::endl;
+					if (inside) {
+						if (cv::contourArea(fgnd_contour) > min_contour_area_fgd) {
+							// Check if contour fully within
+							int points_within = 0;
+							for (int k = 0; k < fgnd_contour.size(); k++) {
+								if (cv::pointPolygonTest(bgnd_contour, fgnd_contour[k], false) > -1) {
+								points_within++;
+								}
+							}
+							if (double(points_within / fgnd_contour.size()) > min_point_threshold) {
+								// Now check area
+								double area = double(cv::contourArea(fgnd_contour) / cv::contourArea(bgnd_contour)) ;
+								if ( area < max_area_threshold && area > min_area_threshold) {
+									cv::Mat im_crop = image_from_rect(bgnd_contour);
+									double cur_mean = mean(im_crop);
+									if (cur_mean > area_confidence_threshold_min && cur_mean < area_confidence_threshold_max) {
+									op.push_back(bgnd_contour);
+									cv::namedWindow( "OP-test" );
+									cv::imshow( "OP-test", im_crop );
+									if (!pause_check) { 
+										std::cout << "erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des] << ") detected ... pausing" << std::endl;
+										std::cout << "Image printed with area " << cv::contourArea(bgnd_contour) << " and strength "<<mean(im_crop)<<std::endl;
+									}
+									pause_check = true;
+									}			
+								}
+							}
 						}
 					}
-				}
+			    }
 			}
-	    }
+		}
 	}
-    }
-	}
+	return op;
 }
 
 int main()
@@ -213,64 +293,58 @@ int main()
     std::shared_ptr<vivacity::Debug> debug(new vivacity::Debug());
     std::shared_ptr<vivacity::ConfigManager> cfg_mgr(new vivacity::ConfigManager(debug, "config.xml"));
     vivacity::Segnet segnet(debug, cfg_mgr, "cars_lorries_trucks_model");
-    cv::Mat image;
-    cv::Mat op;
     cv::Mat op_box;
     while (1) {
 	while (debug->procinput(image, pause_check)) {
 	    if (pause_check == false) {
-		op = segnet.label(image, ch_des);
+			segnet_output = segnet.label(image, ch_des);
 	    }
 	    // post processing
 	    if (blob_detect == true && contour_detect == false) {
-		cv::Mat val_out = op.rowRange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
-		std::vector<cv::KeyPoint> keypoints;
-		cv::Ptr<cv::SimpleBlobDetector> detector = generate_detector();
-		detector->detect(val_out, keypoints);
-		cv::drawKeypoints(
-		    val_out, keypoints, op_box, cv::Scalar(0, 0, 255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
-		debug->showFrame(op_box);
+			cv::Mat val_out = segnet_output.rowRange(ch_des * (segnet_output.rows / ch_max), (ch_des + 1) * (segnet_output.rows / ch_max));
+			std::vector<cv::KeyPoint> keypoints;
+			cv::Ptr<cv::SimpleBlobDetector> detector = generate_detector();
+			detector->detect(val_out, keypoints);
+			cv::drawKeypoints(val_out, keypoints, op_box, cv::Scalar(0, 0, 255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+			debug->showFrame(op_box);
 	    } else if (contour_detect == true && blob_detect == false) {
-		cv::Mat val_out;
-		cv::Mat val_in = op.rowRange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
-		cv::Canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
-		std::vector<std::vector<cv::Point> > contours_out;
-		cv::findContours(val_out, contours_out, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
-		cv::Mat out;
-		cv::Mat in[] = { val_in, val_in, val_in };
-		cv::merge(in, 3, out);
-		int val_count = 0;
-		for (size_t i = 0; i < contours_out.size(); i++) {
-		    if (cv::contourArea(contours_out[i]) > contour_thresh) {
-			cv::drawContours(out,
-			                 contours_out,
-			                 (int)i,
-			                 cv::Scalar(0, 255, 0),
-			                 1,
-			                 cv::LINE_8,
-			                 cv::noArray(),
-			                 0,
-			                 cv::Point(0, 0));
-			val_count++;
-		    }
-		}
-		error_detect_simple(val_count);
-		debug->showFrame(out);
+			cv::Mat val_in = segnet_output.rowRange(ch_des * (segnet_output.rows / ch_max), (ch_des + 1) * (segnet_output.rows / ch_max));
+			std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> >  raw_contour_out = output_contours(val_in);
+			std::vector<std::vector<cv::Point> > contours_out = std::get<0>(raw_contour_out);
+			std::vector<cv::Vec4i> cur_hierarchy = std::get<1>(raw_contour_out);
+			cv::Mat out;
+			cv::Mat in[] = { val_in, val_in, val_in };
+			cv::merge(in, 3, out);
+			int val_count = 0;
+			for (size_t i = 0; i < contours_out.size(); i++) {
+				if (cv::contourArea(contours_out[i]) > contour_min_area_filter && cur_hierarchy[i][3] == -1) {
+				cv::drawContours(out,
+				                 contours_out,
+				                 (int)i,
+				                 cv::Scalar(0, 255, 0),
+				                 1,
+				                 cv::LINE_8,
+				                 cv::noArray(),
+				                 0,
+				                 cv::Point(0, 0));
+				val_count++;
+				}
+			}
+			error_detect_simple(val_count);
+			debug->showFrame(out);
 	    } else {
-		cv::Mat val_bgd = op.rowRange(ch_des * (op.rows / ch_max), (ch_des + 1) * (op.rows / ch_max));
+		cv::Mat val_bgd = segnet_output.rowRange(ch_des * (segnet_output.rows / ch_max), (ch_des + 1) * (segnet_output.rows / ch_max));
 		if (contour_overlay) {
-		    cv::Mat val_out;
-		    cv::Mat val_in = op.rowRange(0, (op.rows / ch_max));
-		    cv::Canny(val_in, val_out, canny_thresh, canny_thresh * 2, 3);
-		    std::vector<std::vector<cv::Point> > contours_out;
-		    cv::findContours(val_out, contours_out, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
-		    //std::cout << "detected: " << contours_out.size() << " contours in background" << std::endl;
+		    cv::Mat val_in = segnet_output.rowRange(0, (segnet_output.rows / ch_max));
+			std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> >  raw_contour_out = output_contours(val_in);
+			std::vector<std::vector<cv::Point> > contours_out =  std::get<0>(raw_contour_out);
+			std::vector<cv::Vec4i> cur_hierarchy = std::get<1>(raw_contour_out);
 		    cv::Mat out;
 		    cv::Mat in[] = { val_bgd, val_bgd, val_bgd };
 		    cv::merge(in, 3, out);
 		    int val_count = 0;
 		    for (size_t i = 0; i < contours_out.size(); i++) {
-			if (cv::contourArea(contours_out[i]) > contour_thresh) {
+		    	if (cv::contourArea(contours_out[i]) > contour_min_area_filter && cur_hierarchy[i][3] == -1) {
 			    cv::drawContours(out,
 			                     contours_out,
 			                     (int)i,
@@ -281,15 +355,25 @@ int main()
 			                     0,
 			                     cv::Point(0, 0));
 			    val_count++;
-			}
+				}
 		    }
 		    if (true) {
-			// now process contours for background image
-			cv::Mat val_out;
-			cv::Canny(val_bgd, val_out, canny_thresh, canny_thresh * 2, 3);
-			std::vector<std::vector<cv::Point> > contours_out_fgnd;
-			cv::findContours(val_out, contours_out_fgnd, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE, cv::Point(0, 0));
-			error_detect_complex(contours_out_fgnd, contours_out);
+				// now process contours for background image
+				std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> >  raw_contour_out_fgnd = output_contours(val_in);
+				std::vector<std::vector<cv::Point> > contours_out_fgnd = std::get<0>(raw_contour_out_fgnd);
+				std::vector<cv::Vec4i> cur_hierarchy_fgnd = std::get<1>(raw_contour_out_fgnd);	
+				std::vector<std::vector<cv::Point> > proc_out = error_detect_complex(contours_out_fgnd, contours_out, cur_hierarchy_fgnd, cur_hierarchy);
+				for (size_t i = 0; i < proc_out.size(); i++) {
+					    cv::drawContours(out,
+					                     proc_out,
+					                     (int)i,
+					                     cv::Scalar(0, 0, 255),
+					                     3,
+					                     cv::LINE_8,
+					                     cv::noArray(),
+					                     0,
+					                     cv::Point(0, 0));
+			    }
 		    }
 		    debug->showFrame(out);
 		} else {
