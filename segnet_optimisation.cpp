@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include "opencv2/opencv.hpp"
 
-// General constants
+//General constants
 const int ch_max = 8;
 const std::vector<std::string> ch_val = { "background",        "cyclists", "cars",        "pedestrians",
                                           "trucks/vans/buses", "buses",    "(6) ??? unknown", "(7) ??? unknown" };
@@ -16,12 +16,12 @@ const int canny_thresh = 150;
 const double contour_min_area_filter = 50.0;
 const double max_contour_dist = 5.0;
 
-// Contour self-correction constants
+//Contour self-correction constants
 const int buffer_length = 300;
 const int contour_avg_threshold = 8;
 const double contour_avg_scalefactor = 1.5;
 
-// Complex contour self-correction constants
+//Complex contour self-correction constants
 const double min_contour_area_bgd = 200.0;
 const double max_area_threshold = 0.9;
 const double min_area_threshold = 0.1;
@@ -30,13 +30,13 @@ const double min_contour_area_fgd = 10.0;
 const double area_confidence_threshold_min = 0.1;
 const double area_confidence_threshold_max = 0.4;
 
-//Threshold self-corrections constants
+//Threshold self-correction constants
 const double threshold_min_area = 50;
 const double threshold_min_val = 0.25;
 const double threshold_mean_buffer = 0.025;
 const int repeat_avoid_buffer = 10;
 
-// Required Global Variables
+//Required Global Variables
 cv::Mat image;
 cv::Mat segnet_output;
 std::vector<int> contour_count_buffer;
