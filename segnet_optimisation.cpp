@@ -33,7 +33,8 @@ const double area_confidence_threshold_max = 0.4;
 //Threshold self-corrections constants
 const double threshold_min_area = 50;
 const double threshold_min_val = 0.25;
-const double threshold_mean_buffer = 0.05;
+const double threshold_mean_buffer = 0.025;
+const int repeat_avoid_buffer = 10;
 
 // Required Global Variables
 cv::Mat image;
@@ -47,6 +48,8 @@ bool threshold_overlay = false;
 bool activate_complex_detection = false;
 int ch_des = 2;
 int contour_avg_count = 0;
+int cur_iteration = 0;
+int prev_iteration_find = 0;
 
 int kbhit(void) {
     struct termios oldt, newt;
@@ -308,8 +311,8 @@ std::vector<std::vector<int> > vector_verify (std::vector<double> val_in) {
 	return index_similar;
 }
 
-void histogram_error_detect(std::vector<std::vector<cv::Point> > contours_in) {
-	if (!pause_check) {
+std::vector<std::vector<cv::Point> > histogram_error_detect(std::vector<std::vector<cv::Point> > contours_in) {
+	std::vector<std::vector<cv::Point> > error_contours;
 	std::vector<std::vector<double> > op;
 	for (int i = 0; i < contours_in.size(); i++) {
 		std::vector<double> entry;
@@ -325,15 +328,23 @@ void histogram_error_detect(std::vector<std::vector<cv::Point> > contours_in) {
 			}
 			std::vector<std::vector<int> > index_similar = vector_verify(entry);
 			if (index_similar.size() > 0) {
-				std::cout<<"----------------------"<<std::endl;
-				for (int i = 0 ; i < index_similar.size(); i++){
-					std::cout<<"Error detected -> confusion between: " << ch_val[(index_similar[i])[0] + 1] << " and: " << ch_val[(index_similar[i])[1] + 1] << std::endl;
+				if ((cur_iteration - prev_iteration_find) > repeat_avoid_buffer) {
+					prev_iteration_find = cur_iteration;
+					error_contours.push_back(contours_in[i]);
+					if (!pause_check) {
+					std::cout<<"----------------------"<<std::endl;
+					for (int i = 0 ; i < index_similar.size(); i++){
+						std::cout<<"Error detected -> confusion between: " << ch_val[(index_similar[i])[0] + 1] << " and: " << ch_val[(index_similar[i])[1] + 1] << std::endl;
+					}
+					std::cout<<"----------------------"<<std::endl;
+					}
+					pause_check = true;
 				}
-				std::cout<<"----------------------"<<std::endl;
 			}
 		}
 		op.push_back(entry);
 	}
+	return error_contours;
 	/* Print values
 	std::cout<<"----------------------"<<std::endl;
 	for (int i = 0; i < op.size(); i++) {
@@ -345,7 +356,6 @@ void histogram_error_detect(std::vector<std::vector<cv::Point> > contours_in) {
 	}
 	std::cout<<"----------------------"<<std::endl;
 	*/
-	}
 }
 
 int main()
@@ -355,8 +365,10 @@ int main()
     std::shared_ptr<vivacity::ConfigManager> cfg_mgr(new vivacity::ConfigManager(debug, "config.xml"));
     vivacity::Segnet segnet(debug, cfg_mgr, "cars_lorries_trucks_model");
     cv::Mat op_box;
+	cur_iteration = 0;
 	while (debug->procinput(image, pause_check)) {
 	    if (pause_check == false) {
+			cur_iteration++;
 			segnet_output = segnet.label(image, ch_des);
 	    }
 	    // post processing
@@ -450,20 +462,24 @@ int main()
 			cv::merge(in, 3, out);
 			std::vector< std::vector<cv::Point> > valid_contours;
 			int val_count = 0;
-			/*
-			std::cout<<"******************"<<std::endl;
-            for(int i=0;i<cur_hierarchy.size();i++)
-            {
-				std::cout<<cur_hierarchy[i]<<std::endl;
-
-            }
-			std::cout<<contours_out.size()<<std::endl;
-			std::cout<<"******************"<<std::endl;
-			*/
 			for (size_t i = 0; i < contours_out.size(); i++) {
 				if (cv::contourArea(contours_out[i]) > contour_min_area_filter && cur_hierarchy[i][3] == -1) {
-					cv::drawContours(out,
+					/* cv::drawContours(out,
 								 contours_out,
+								 (int)i,
+								 cv::Scalar(0, 0, 255),
+								 1,
+								 cv::LINE_8,
+								 cv::noArray(),
+								 0,
+								 cv::Point(0, 0)); */
+					valid_contours.push_back(contours_out[i]);
+				}
+			}
+			std::vector<std::vector<cv::Point> > contours_errors = histogram_error_detect(valid_contours);
+			for (size_t i = 0; i < contours_errors.size(); i++) {
+					cv::drawContours(out,
+								 contours_errors,
 								 (int)i,
 								 cv::Scalar(0, 0, 255),
 								 1,
@@ -472,10 +488,7 @@ int main()
 								 0,
 								 cv::Point(0, 0));
 					val_count++;
-					valid_contours.push_back(contours_out[i]);
-				}
 			}
-			histogram_error_detect(valid_contours);
 			debug->showFrame(out);
 		} else {
 			debug->showFrame(segnet_output.rowRange(ch_des * (segnet_output.rows / ch_max), (ch_des + 1) * (segnet_output.rows / ch_max)));
