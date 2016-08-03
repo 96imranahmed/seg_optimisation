@@ -5,11 +5,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include "opencv2/opencv.hpp"
+#include <dirent.h>
+#include <sys/stat.h>
+#include <chrono>
 
 //General constants
 const int ch_max = 8;
-const std::vector<std::string> ch_val = { "background",        "cyclists", "cars",        "pedestrians",
-                                          "trucks/vans/buses", "buses",    "(6) ??? unknown", "(7) ??? unknown" };
+const std::vector<std::string> ch_val = { "Background","Cyclists","Cars","Pedestrians","Trucks","Buses","Bikes","Vans"};
+const std::string output_dir = "../Output/";
+const bool pause_on_find = false;
 
 //Contour processing constants
 const int canny_thresh = 150;
@@ -45,7 +49,8 @@ bool blob_detect = false;
 bool contour_detect = false;
 bool contour_overlay = false;
 bool threshold_overlay = false;
-bool activate_complex_detection = false;
+bool activate_complex_detection = true;
+bool enable_print = false;
 int ch_des = 2;
 int contour_avg_count = 0;
 int cur_iteration = 0;
@@ -77,22 +82,22 @@ void key_check() {
 	    char cur_char = getchar();
 	    if (cur_char == 32) {
 			if (!pause_check) {
-				std::cout << "pausing..." << std::endl;
+				std::cout << "Pausing..." << std::endl;
 			} else {
-				std::cout << "continuing..." << std::endl;
+				std::cout << "Continuing..." << std::endl;
 			}
 			pause_check = !pause_check; // toggle pause
 	    } else if (cur_char > 47 && cur_char < 58) {
 			if ((cur_char - 48) < ch_max) {
 				// swap to new class channel
 				ch_des = cur_char - 48;
-				std::cout << "switching to channel: " << int(ch_des) << " (" << ch_val[ch_des] << ")" << std::endl;
+				std::cout << "Switching to channel: " << int(ch_des) << " (" << ch_val[ch_des] << ")" << std::endl;
 			}
 	    } else if (cur_char == 'b' || cur_char == 'B') {
 			if (blob_detect) {
-				std::cout << "de-activating blob detection!" << std::endl;
+				std::cout << "De-activating blob detection!" << std::endl;
 			} else {
-				std::cout << "activating blob detection!" << std::endl;
+				std::cout << "Activating blob detection!" << std::endl;
 				contour_detect = false;
 				contour_overlay = false;
 				threshold_overlay = false;
@@ -101,9 +106,9 @@ void key_check() {
 			blob_detect = !blob_detect; // toggle blob detection
 	    } else if (cur_char == 'c'|| cur_char == 'C') {
 			if (contour_detect) {
-				std::cout << "de-activating contour detection!" << std::endl;
+				std::cout << "De-activating contour detection!" << std::endl;
 			} else {
-				std::cout << "activating contour detection!" << std::endl;
+				std::cout << "Activating contour detection!" << std::endl;
 				blob_detect = false;
 				contour_overlay = false;
 				threshold_overlay = false;
@@ -112,9 +117,9 @@ void key_check() {
 			contour_detect = !contour_detect;
 	    } else if (cur_char == 'o' || cur_char == 'O') {
 			if (contour_overlay) {
-				std::cout << "de-activating overlay contour detection!" << std::endl;
+				std::cout << "De-activating overlay contour detection!" << std::endl;
 			} else {
-				std::cout << "activating overlay contour detection!" << std::endl;
+				std::cout << "Activating overlay contour detection!" << std::endl;
 				blob_detect = false;
 				contour_detect = false;
 				threshold_overlay = false;
@@ -123,18 +128,61 @@ void key_check() {
 			contour_overlay = !contour_overlay;
 	    } else if (cur_char == 't' || cur_char == 'T') {
 			if (threshold_overlay) {
-				std::cout << "de-activating threshold/histogram detection!" << std::endl;
+				std::cout << "De-activating threshold/histogram detection!" << std::endl;
 			} else {
-				std::cout << "activating threshold/histogram detection!" << std::endl;
+				std::cout << "Activating threshold/histogram detection!" << std::endl;
 				blob_detect = false;
 				contour_detect = false;
 				contour_overlay = false;
 				contour_count_buffer.clear();
 			}
 			threshold_overlay = !threshold_overlay;
+		} else if (cur_char == 'p' || cur_char == 'P') {
+			if (enable_print) {
+				std::cout << "De-activating image printing" << std::endl;
+			} else {
+				std::cout << "Activating image printing" << std::endl;
+			}
+			enable_print = !enable_print;
 		}
 	}
     }
+}
+
+//Output functions
+std::string get_file_string(std::string prep_message) {
+	std::time_t result = std::time(nullptr);
+	prep_message = output_dir + prep_message + "_" + std::to_string(cur_iteration) + "_" + std::to_string(result) + ".png";
+	return prep_message;
+}
+
+void output_image(int method, std::vector<int> input_info = std::vector<int>()) {
+	if (enable_print) {
+		DIR *dpdf;
+		dpdf = opendir(output_dir.c_str());
+		if (dpdf != NULL) {
+			std::string output_file;
+			switch (method) {
+				case 1 :
+					output_file = get_file_string("Simple_"+ ch_val[ch_des]);
+					break;
+				case 2 :
+					output_file = get_file_string("Complex_"+ ch_val[ch_des]);
+					break;
+				case 3 :
+					output_file = get_file_string("Histogram_" + ch_val[input_info[0]] + "-" + ch_val[input_info[1]]);
+					break;
+				default:
+					output_file = get_file_string("Default");
+			}
+			//std::cout<<output_file<<std::endl;
+			cv::imwrite(output_file, image);
+		} else {
+			mkdir(output_dir.c_str(), 0700);
+			output_image(method, input_info);
+		}
+		closedir(dpdf);
+	}
 }
 
 std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> > output_contours(cv::Mat &val_in) {
@@ -222,9 +270,10 @@ void error_detect_simple(int val_in) {
 		if (contour_avg_count > contour_avg_threshold) {
 		    contour_count_buffer.clear();
 		    contour_avg_count = 0;
-		    pause_check = true;
-		    std::cout << "erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des]
+		    if (pause_on_find) {pause_check = true;}
+		    std::cout << "Erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des]
 		              << ") detected ... pausing" << std::endl;
+		    if (enable_print) {output_image(1);}
 		}
     }
 }
@@ -262,15 +311,12 @@ std::vector<std::vector<cv::Point> > error_detect_complex(std::vector<std::vecto
 									double cur_mean = find_mean(im_crop);
 									if (cur_mean > area_confidence_threshold_min && cur_mean < area_confidence_threshold_max) {
 									op.push_back(bgnd_contour);
-									/*
-									cv::namedWindow( "OP-test" );
-									cv::imshow( "OP-test", im_crop );
-									*/
-									if (!pause_check) { 
-										std::cout << "erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des] << ") detected ... pausing" << std::endl;
-										std::cout << "Image printed with area " << cv::contourArea(bgnd_contour) << " and strength "<<mean(im_crop)<<std::endl;
+									if (!pause_check && (cur_iteration - prev_iteration_find) > repeat_avoid_buffer) { 
+										std::cout << "Erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des] << ") detected ... pausing" << std::endl;
+										//std::cout << "Area " << cv::contourArea(bgnd_contour) << " and strength "<<find_mean(im_crop)<<std::endl;
+										if (pause_on_find) { pause_check = true; }
+										if (enable_print) {output_image(2);}
 									}
-									pause_check = true;
 									}			
 								}
 							}
@@ -278,6 +324,13 @@ std::vector<std::vector<cv::Point> > error_detect_complex(std::vector<std::vecto
 					}
 			    }
 			}
+		}
+	}
+	if (op.size() > 0) {
+		if ((cur_iteration - prev_iteration_find) > repeat_avoid_buffer) {
+			prev_iteration_find = cur_iteration;
+		} else if ((cur_iteration - prev_iteration_find) < repeat_avoid_buffer && pause_check == false) {
+			op.clear();
 		}
 	}
 	return op;
@@ -291,22 +344,28 @@ std::vector<std::vector<int> > vector_verify (std::vector<double> val_in) {
 		if (!(val_in[i]==0)) { 
 			index_non_zero.push_back(i); //Remember still offset by 1 to real class (ignores background)
 			val_non_zero.push_back(val_in[i]);
-		}
+		}	
 	}
+	if (val_non_zero.size() > 0) {
+	auto max_val_ptr = std::max_element(val_non_zero.begin(), val_non_zero.end());
+	double max_val = *max_val_ptr;
 	for (int i = 0; i < val_non_zero.size(); i++) {
 		for (int j = 0; j < val_non_zero.size(); j++) {
-			if (abs(val_non_zero[j] - val_non_zero[i]) < threshold_mean_buffer && i != j) {
-				std::vector<int> opposite;
-				opposite.push_back(index_non_zero[j]);
-				opposite.push_back(index_non_zero[i]);
-				if (std::find(index_similar.begin(), index_similar.end(), opposite) == index_similar.end()) {
-					std::vector<int> insert;
-					insert.push_back(index_non_zero[i]);
-					insert.push_back(index_non_zero[j]);
-					index_similar.push_back(insert);
+			if (((max_val - val_non_zero[j]) < threshold_mean_buffer) || ((max_val - val_non_zero[i]) < threshold_mean_buffer)) {
+				if ((abs(val_non_zero[j] - val_non_zero[i]) < threshold_mean_buffer) && (i != j)) {
+					std::vector<int> opposite;
+					opposite.push_back(index_non_zero[j]);
+					opposite.push_back(index_non_zero[i]);
+					if (std::find(index_similar.begin(), index_similar.end(), opposite) == index_similar.end()) {
+						std::vector<int> insert;
+						insert.push_back(index_non_zero[i]);
+						insert.push_back(index_non_zero[j]);
+						index_similar.push_back(insert);
+					}
 				}
 			}
 		}
+	}
 	}
 	return index_similar;
 }
@@ -333,10 +392,11 @@ std::vector<std::vector<cv::Point> > histogram_error_detect(std::vector<std::vec
 					error_contours.push_back(contours_in[i]);
 					if (!pause_check) {
 						for (int i = 0 ; i < index_similar.size(); i++){
-							std::cout<<"Error detected -> confusion between: " << ch_val[(index_similar[i])[0] + 1] << " and: " << ch_val[(index_similar[i])[1] + 1] << std::endl;
-						}
+							std::cout<<"Error detected -> confusion between " << ch_val[(index_similar[i])[0] + 1] << " and " << ch_val[(index_similar[i])[1] + 1] << std::endl;
+							if (enable_print) {output_image(3, index_similar[i]);}
+						}						 
 					}
-					pause_check = true;
+					if (pause_on_find) {pause_check = true;}
 				} else if (((cur_iteration - prev_iteration_find) < repeat_avoid_buffer) && pause_check == true) {
 					error_contours.push_back(contours_in[i]);
 				}
