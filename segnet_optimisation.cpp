@@ -16,12 +16,12 @@ const int canny_thresh = 150;
 const double contour_min_area_filter = 50.0;
 const double max_contour_dist = 5.0;
 
-// Contour self-correction constants
+//Contour self-correction constants
 const int buffer_length = 300;
 const int contour_avg_threshold = 8;
 const double contour_avg_scalefactor = 1.5;
 
-// Complex contour self-correction constants
+//Complex contour self-correction constants
 const double min_contour_area_bgd = 200.0;
 const double max_area_threshold = 0.9;
 const double min_area_threshold = 0.1;
@@ -33,10 +33,10 @@ const double area_confidence_threshold_max = 0.4;
 //Threshold self-corrections constants
 const double threshold_min_area = 50;
 const double threshold_min_val = 0.25;
-const double threshold_mean_buffer = 0.025;
-const int repeat_avoid_buffer = 10;
+const double threshold_mean_buffer = 0.01;
+const int repeat_avoid_buffer = 50;
 
-// Required Global Variables
+//Required Global Variables
 cv::Mat image;
 cv::Mat segnet_output;
 std::vector<int> contour_count_buffer;
@@ -332,13 +332,13 @@ std::vector<std::vector<cv::Point> > histogram_error_detect(std::vector<std::vec
 					prev_iteration_find = cur_iteration;
 					error_contours.push_back(contours_in[i]);
 					if (!pause_check) {
-					std::cout<<"----------------------"<<std::endl;
-					for (int i = 0 ; i < index_similar.size(); i++){
-						std::cout<<"Error detected -> confusion between: " << ch_val[(index_similar[i])[0] + 1] << " and: " << ch_val[(index_similar[i])[1] + 1] << std::endl;
-					}
-					std::cout<<"----------------------"<<std::endl;
+						for (int i = 0 ; i < index_similar.size(); i++){
+							std::cout<<"Error detected -> confusion between: " << ch_val[(index_similar[i])[0] + 1] << " and: " << ch_val[(index_similar[i])[1] + 1] << std::endl;
+						}
 					}
 					pause_check = true;
+				} else if (((cur_iteration - prev_iteration_find) < repeat_avoid_buffer) && pause_check == true) {
+					error_contours.push_back(contours_in[i]);
 				}
 			}
 		}
