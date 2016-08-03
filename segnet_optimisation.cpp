@@ -170,7 +170,7 @@ void output_image(int method, std::vector<int> input_info = std::vector<int>()) 
 					output_file = get_file_string("Complex_"+ ch_val[ch_des]);
 					break;
 				case 3 :
-					output_file = get_file_string("Histogram_" + ch_val[input_info[0]] + "-" + ch_val[input_info[1]]);
+					output_file = get_file_string("Histogram_" + ch_val[input_info[0] + 1] + "-" + ch_val[input_info[1] + 1]);
 					break;
 				default:
 					output_file = get_file_string("Default");
