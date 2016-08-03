@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include "opencv2/opencv.hpp"
 
-// General constants
+//General constants
 const int ch_max = 8;
 const std::vector<std::string> ch_val = { "background",        "cyclists", "cars",        "pedestrians",
                                           "trucks/vans/buses", "buses",    "(6) ??? unknown", "(7) ??? unknown" };
@@ -30,7 +30,7 @@ const double min_contour_area_fgd = 10.0;
 const double area_confidence_threshold_min = 0.1;
 const double area_confidence_threshold_max = 0.4;
 
-//Threshold self-corrections constants
+//Threshold self-correction constants
 const double threshold_min_area = 50;
 const double threshold_min_val = 0.25;
 const double threshold_mean_buffer = 0.01;
