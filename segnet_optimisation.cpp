@@ -14,6 +14,7 @@ const int ch_max = 8;
 const std::vector<std::string> ch_val = { "Background","Cyclists","Cars","Pedestrians","Trucks","Buses","Bikes","Vans"};
 const std::string output_dir = "../Output/";
 const bool pause_on_find = false;
+const int repeat_avoid_buffer = 50;
 
 //Contour processing constants
 const int canny_thresh = 150;
@@ -29,7 +30,7 @@ const double contour_avg_scalefactor = 1.5;
 const double min_contour_area_bgd = 200.0;
 const double max_area_threshold = 0.9;
 const double min_area_threshold = 0.1;
-const double min_point_threshold = 0.2;
+const double min_point_threshold = 0.4;
 const double min_contour_area_fgd = 10.0;
 const double area_confidence_threshold_min = 0.1;
 const double area_confidence_threshold_max = 0.4;
@@ -38,23 +39,26 @@ const double area_confidence_threshold_max = 0.4;
 const double threshold_min_area = 50;
 const double threshold_min_val = 0.25;
 const double threshold_mean_buffer = 0.01;
-const int repeat_avoid_buffer = 50;
+const bool ignore_focus_zones = true;
+const double radius_threshold = 80;
+const double ignore_histogram_threshold = 0.4;
+const int histogram_buffer_size = 30;
 
 //Required Global Variables
 cv::Mat image;
 cv::Mat segnet_output;
-std::vector<int> contour_count_buffer;
 bool pause_check = false;
 bool blob_detect = false;
 bool contour_detect = false;
 bool contour_overlay = false;
 bool threshold_overlay = false;
-bool activate_complex_detection = true;
 bool enable_print = false;
 int ch_des = 2;
 int contour_avg_count = 0;
+std::vector<int> contour_count_buffer;
 int cur_iteration = 0;
 int prev_iteration_find = 0;
+std::vector<cv::Point2f> contour_centres;
 
 int kbhit(void) {
     struct termios oldt, newt;
@@ -150,35 +154,54 @@ void key_check() {
 }
 
 //Output functions
-std::string get_file_string(std::string prep_message) {
+std::string get_file_string(std::string root_dir, std::string prep_message) {
 	std::time_t result = std::time(nullptr);
-	prep_message = output_dir + prep_message + "_" + std::to_string(cur_iteration) + "_" + std::to_string(result) + ".png";
+	if (prep_message != "") {
+		prep_message = root_dir + prep_message + "_" + std::to_string(cur_iteration) + "_" + std::to_string(result) + ".png";
+	} else {
+		prep_message = root_dir + std::to_string(cur_iteration) + "_" + std::to_string(result) + ".png";	
+	}
 	return prep_message;
 }
 
 void output_image(int method, std::vector<int> input_info = std::vector<int>()) {
 	if (enable_print) {
 		DIR *dpdf;
-		dpdf = opendir(output_dir.c_str());
+		std::string file_ext;
+		switch (method) {
+			case 1 :
+				file_ext = "Simple/"; 
+				break;
+			case 2:
+				file_ext = "Complex/";
+				break;
+			case 3:
+				file_ext = "Histogram/";
+				break;
+			default:
+				file_ext = "Other/";
+		}
+		file_ext = output_dir + file_ext;
+		dpdf = opendir(file_ext.c_str());
 		if (dpdf != NULL) {
 			std::string output_file;
 			switch (method) {
 				case 1 :
-					output_file = get_file_string("Simple_"+ ch_val[ch_des]);
+					output_file = get_file_string(file_ext, ch_val[ch_des]);
 					break;
 				case 2 :
-					output_file = get_file_string("Complex_"+ ch_val[ch_des]);
+					output_file = get_file_string(file_ext, ch_val[ch_des]);
 					break;
 				case 3 :
-					output_file = get_file_string("Histogram_" + ch_val[input_info[0] + 1] + "-" + ch_val[input_info[1] + 1]);
+					output_file = get_file_string(file_ext, ch_val[input_info[0] + 1] + "-" + ch_val[input_info[1] + 1]);
 					break;
 				default:
-					output_file = get_file_string("Default");
+					output_file = get_file_string(file_ext, "");
 			}
 			//std::cout<<output_file<<std::endl;
 			cv::imwrite(output_file, image);
 		} else {
-			mkdir(output_dir.c_str(), 0700);
+			mkdir(file_ext.c_str(), 0700);
 			output_image(method, input_info);
 		}
 		closedir(dpdf);
@@ -312,7 +335,7 @@ std::vector<std::vector<cv::Point> > error_detect_complex(std::vector<std::vecto
 									if (cur_mean > area_confidence_threshold_min && cur_mean < area_confidence_threshold_max) {
 									op.push_back(bgnd_contour);
 									if (!pause_check && (cur_iteration - prev_iteration_find) > repeat_avoid_buffer) { 
-										std::cout << "Erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des] << ") detected ... pausing" << std::endl;
+										std::cout << "Erroneous classification in class: " << int(ch_des) << " (" << ch_val[ch_des] << ") detected" << std::endl;
 										//std::cout << "Area " << cv::contourArea(bgnd_contour) << " and strength "<<find_mean(im_crop)<<std::endl;
 										if (pause_on_find) { pause_check = true; }
 										if (enable_print) {output_image(2);}
@@ -388,16 +411,49 @@ std::vector<std::vector<cv::Point> > histogram_error_detect(std::vector<std::vec
 			std::vector<std::vector<int> > index_similar = vector_verify(entry);
 			if (index_similar.size() > 0) {
 				if ((cur_iteration - prev_iteration_find) > repeat_avoid_buffer) {
-					prev_iteration_find = cur_iteration;
-					error_contours.push_back(contours_in[i]);
-					if (!pause_check) {
-						for (int i = 0 ; i < index_similar.size(); i++){
-							std::cout<<"Error detected -> confusion between " << ch_val[(index_similar[i])[0] + 1] << " and " << ch_val[(index_similar[i])[1] + 1] << std::endl;
-							if (enable_print) {output_image(3, index_similar[i]);}
-						}						 
+					bool shall_ignore = false;
+					if (ignore_focus_zones && pause_check == false) { //Switch off to stop background flaring
+						cv::Point2f cur_point;
+						float cur_radius;
+						cv::minEnclosingCircle(contours_in[i], cur_point, cur_radius);
+						if (contour_centres.size() > histogram_buffer_size) {
+				   			contour_centres.erase(contour_centres.begin());
+				    		contour_centres.push_back(cur_point);
+						} else {
+						    contour_centres.push_back(cur_point);
+						}
+						int val_count = 0;
+						for (int z = 0; z < contour_centres.size() - 1; z++) {
+							double dist = cv::norm(contour_centres[z] - cur_point);
+							if (dist < radius_threshold) {
+								val_count++;
+							}
+						}
+						if ((((double) val_count)/contour_centres.size()) > ignore_histogram_threshold) {
+							std::cout<<"Ignored possible background noise -> enable pause in histogram_error_detect to verify"<< std::endl;
+							shall_ignore = true;
+						} else {
+							/*
+							std::cout<<"Count: "<<val_count<<std::endl;
+							std::cout<<(((double) val_count)/contour_centres.size())<<std::endl;
+							*/
+						}
 					}
-					if (pause_on_find) {pause_check = true;}
-				} else if (((cur_iteration - prev_iteration_find) < repeat_avoid_buffer) && pause_check == true) {
+					if (!shall_ignore) {
+						prev_iteration_find = cur_iteration;
+						error_contours.push_back(contours_in[i]);
+						if (!pause_check) {
+							for (int i = 0 ; i < index_similar.size(); i++){
+								std::cout<<"Error detected -> confusion between " << ch_val[(index_similar[i])[0] + 1] << " and " << ch_val[(index_similar[i])[1] + 1] << std::endl;
+								if (enable_print) {output_image(3, index_similar[i]);}
+							}						 
+						}
+						if (pause_on_find) {pause_check = true;}
+					} else {
+						error_contours.push_back(contours_in[i]);
+						pause_check = false; //Enable me to check if the system is ignoring the correct "noise" entries (and adjust constants at top of file accordingly)
+					}
+				} else if (pause_check == true) {
 					error_contours.push_back(contours_in[i]);
 				}
 			}
@@ -477,7 +533,7 @@ int main()
 				int val_count = 0;
 				for (size_t i = 0; i < contours_out.size(); i++) {
 					if (cv::contourArea(contours_out[i]) > contour_min_area_filter && cur_hierarchy[i][3] == -1) {
-					cv::drawContours(out,
+					/* cv::drawContours(out,
 									 contours_out,
 									 (int)i,
 									 cv::Scalar(255, 0, 0),
@@ -485,27 +541,25 @@ int main()
 									 cv::LINE_8,
 									 cv::noArray(),
 									 0,
-									 cv::Point(0, 0));
+									 cv::Point(0, 0)); */
 					val_count++;
 					}
 				}
-				if (activate_complex_detection) {
-					// now process contours for background image
-					std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> >  raw_contour_out_fgnd = output_contours(val_in);
-					std::vector<std::vector<cv::Point> > contours_out_fgnd = std::get<0>(raw_contour_out_fgnd);
-					std::vector<cv::Vec4i> cur_hierarchy_fgnd = std::get<1>(raw_contour_out_fgnd);	
-					std::vector<std::vector<cv::Point> > proc_out = error_detect_complex(contours_out_fgnd, contours_out, cur_hierarchy_fgnd, cur_hierarchy);
-					for (size_t i = 0; i < proc_out.size(); i++) {
-							cv::drawContours(out,
-											 proc_out,
-											 (int)i,
-											 cv::Scalar(0, 0, 255),
-											 1,
-											 cv::LINE_8,
-											 cv::noArray(),
-											 0,
-											 cv::Point(0, 0));
-					}
+				// now process contours for background image
+				std::tuple<std::vector<std::vector<cv::Point> >, std::vector<cv::Vec4i> >  raw_contour_out_fgnd = output_contours(val_in);
+				std::vector<std::vector<cv::Point> > contours_out_fgnd = std::get<0>(raw_contour_out_fgnd);
+				std::vector<cv::Vec4i> cur_hierarchy_fgnd = std::get<1>(raw_contour_out_fgnd);	
+				std::vector<std::vector<cv::Point> > proc_out = error_detect_complex(contours_out_fgnd, contours_out, cur_hierarchy_fgnd, cur_hierarchy);
+				for (size_t i = 0; i < proc_out.size(); i++) {
+						cv::drawContours(out,
+										 proc_out,
+										 (int)i,
+										 cv::Scalar(0, 0, 255),
+										 1,
+										 cv::LINE_8,
+										 cv::noArray(),
+										 0,
+										 cv::Point(0, 0));
 				}
 				debug->showFrame(out);
 			} else {
@@ -542,7 +596,7 @@ int main()
 								 contours_errors,
 								 (int)i,
 								 cv::Scalar(0, 0, 255),
-								 1,
+								 3,
 								 cv::LINE_8,
 								 cv::noArray(),
 								 0,
