@@ -21,7 +21,7 @@ $(TARGET): $(addprefix $(OBJ),$(OBJECTS))
 	$(CC) -o $(OBJ)$(TARGET) $(addprefix $(OBJ),$(OBJECTS)) $(VIVDIR) $(VIVLIB) $(BOOST) $(NCURSES) $(LINKFLAGS) $(SQL) $(CAFFE) -lglog -lgflags -lcpr -lcurl
 
 $(OBJ)%.o: $(SRC)%.cpp | MKDIR
-	$(CC) $< -g -o $@ -c $(CFLAGS) -w $(CUDA) $(CAFFE) -I./include
+	$(CC) $< -g -o $@ -c $(CFLAGS) -w $(CUDA) $(CAFFE)
 
 clean:
 	rm -rf $(OBJ)*.o 

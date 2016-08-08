@@ -14,13 +14,39 @@
 #include <iostream>
 
 //General constants
-int ch_max, repeat_avoid_buffer, canny_thresh, buffer_length, contour_avg_threshold, histogram_buffer_size;
-double contour_min_area_filter, max_contour_dist, contour_avg_scalefactor, min_contour_area_fgd, min_contour_area_bgd, 
-min_area_threshold, max_area_threshold, min_point_threshold, area_confidence_threshold_min, area_confidence_threshold_max, 
-threshold_min_area, threshold_min_val, threshold_mean_buffer,radius_threshold, ignore_histogram_threshold;
-bool pause_on_find, ignore_focus_zones;
-std::vector<std::string> ch_val;
-std::string output_dir;
+const int ch_max = 8;
+const std::vector<std::string> ch_val = { "Background","Cyclists","Cars","Pedestrians","Trucks","Buses","Bikes","Vans"};
+const std::string output_dir = "../Output/";
+const bool pause_on_find = false;
+const int repeat_avoid_buffer = 50;
+
+//Contour processing constants
+const int canny_thresh = 150;
+const double contour_min_area_filter = 50.0;
+const double max_contour_dist = 5.0;
+
+//Contour self-correction constants
+const int buffer_length = 300;
+const int contour_avg_threshold = 8;
+const double contour_avg_scalefactor = 1.5;
+
+//Complex contour self-correction constants
+const double min_contour_area_bgd = 200.0;
+const double max_area_threshold = 0.9;
+const double min_area_threshold = 0.1;
+const double min_point_threshold = 0.4;
+const double min_contour_area_fgd = 10.0;
+const double area_confidence_threshold_min = 0.1;
+const double area_confidence_threshold_max = 0.4;
+
+//Threshold self-correction constants
+const double threshold_min_area = 50;
+const double threshold_min_val = 0.25;
+const double threshold_mean_buffer = 0.01;
+const bool ignore_focus_zones = false;
+const double radius_threshold = 80;
+const double ignore_histogram_threshold = 0.4;
+const int histogram_buffer_size = 30;
 
 //Required Global Variables
 cv::Mat image;
@@ -31,7 +57,6 @@ bool contour_detect = false;
 bool contour_overlay = false;
 bool threshold_overlay = false;
 bool enable_print = false;
-bool update_config = false;
 int ch_des = 2;
 int contour_avg_count = 0;
 std::vector<int> contour_count_buffer;
@@ -41,10 +66,11 @@ std::vector<cv::Point2f> contour_centres;
 
 using namespace json11;
 
+/*
 void generate_config() {
 	try {
 		Json default_json = Json::object({
-			{"Max Number of Channels", 8 },
+			{"Max Channel", "8" },
 			{"Output Directory", "../Output/"},
 			{"Channels", Json::array{"Background","Cyclists","Cars","Pedestrians","Trucks","Buses","Bikes","Vans"}},
 			{"Repeat Error Ignore Buffer", 50},
@@ -67,15 +93,15 @@ void generate_config() {
 			{"Histogram Mean Error Difference", 0.1},
 			{"Histogram Ignore Focus Zones", false},
 			{"Histogram Focus Zone Radius", 80},
-			{"Histogram Focus Zone Error Threshold", 0.4},
+			{"Histogram Focus Zone Error Ratio", 0.4},
 			{"Histogram Focus Zone Buffer Size", 30},
 		});
 		std::ofstream out("Self_Optimisation_Config.json");
 		out << default_json.dump();
 		out.close();
-		std::cout<<"JSON STATUS: Succesfully created default JSON error detection configuration file"<<std::endl;
+		std::cout<<"Succesfully created default JSON configuration file"<<std::endl;
 	} catch (int e) {
-		std::cout<<"JSON ERROR: Default JSON configuration file generation failed with exception # " << e << std::endl;
+		std::cout<<"An error occurred when generating default JSON file -> Exception # " << e << std::endl;
 	}
 }
 
@@ -87,60 +113,17 @@ void update_from_config() {
 		std::string cur_error;
 		Json config_json = Json::parse(buffer.str(), cur_error);
 		if (cur_error.size() == 0) {
-			try {
-				ch_max = config_json["Max Number of Channels"].int_value();
-				output_dir = config_json["Output Directory"].string_value();
-				ch_val = std::vector<std::string>();
-				Json::array cur_array = config_json["Channels"].array_items();
-				//Sanity check array length to prevent errors
-				if (cur_array.size() == ch_max) {
-					for (int i = 0; i < cur_array.size(); i++) {
-						ch_val.push_back(cur_array[i].string_value());
-					}
-				} else {
-					ch_max = 8;
-					ch_val = { "Background","Cyclists","Cars","Pedestrians","Trucks","Buses","Bikes","Vans"};
-					std::cout<<"JSON ERROR: Channels array to long or too short compared to 'Max Channel' - restoring defaults"<<std::endl;
-				}
-				pause_on_find = config_json["Pause Video Feed on Error Detect"].bool_value();
-				repeat_avoid_buffer = config_json["Repeat Error Ignore Buffer"].int_value();
-				canny_thresh = config_json["Canny Threshold Value"].int_value();
-				contour_min_area_filter = config_json["Minimum Contour Area"].number_value();
-				max_contour_dist = config_json["Canny Max Contour Approximation Distance"].number_value();
-				buffer_length = config_json["Simple Correction Buffer"].int_value();
-				contour_avg_threshold = config_json["Simple Error Threshold"].int_value();
-				contour_avg_scalefactor = config_json["Simple Error Scale Factor"].number_value();
-				min_contour_area_bgd = config_json["Complex Min Area Background"].number_value();
-				min_contour_area_fgd = config_json["Complex Min Area Foreground"].number_value();
-				min_area_threshold = config_json["Complex Min Area Ratio"].number_value();
-				max_area_threshold = config_json["Complex Max Area Ratio"].number_value();
-				min_point_threshold = config_json["Complex Min Point Ratio"].number_value();
-				area_confidence_threshold_min = config_json["Complex Min Confidence"].number_value();
-				area_confidence_threshold_max = config_json["Complex Max Confidence"].number_value();
-				threshold_min_area = config_json["Histogram Min Area"].number_value();
-				threshold_min_val = config_json["Histogram Min Mean"].number_value();
-				threshold_mean_buffer = config_json["Histogram Mean Error Difference"].number_value();
-				ignore_focus_zones = config_json["Histogram Ignore Focus Zones"].bool_value();
-				radius_threshold = config_json["Histogram Focus Zone Radius"].number_value();
-				ignore_histogram_threshold = config_json["Histogram Focus Zone Error Threshold"].number_value();
-				histogram_buffer_size = config_json["Histogram Focus Zone Buffer Size"].int_value();
-				std::cout<<"JSON STATUS: Succesfully updated configurable variables!"<<std::endl;
-			} catch (int e) {
-				std::cout<<"JSON ERROR: Some values could not be found. Restoring default JSON error detection configuration file"<<std::endl;
-				generate_config();
-				update_from_config();
-			}
+
 		} else {
-			std::cout<<"JSON ERROR: Corrupt JSON file. Restoring default JSON error detection configuration file"<<std::endl;
-			generate_config();
-			update_from_config();
+			std::cout<<"Error with JSON file -> restoring to default"<<std::endl;
 		}
 	} else {
-		std::cout<<"JSON ERROR: No config file found. Creating default JSON error detection configuration file"<<std::endl;
+		std::cout<<"No JSON file found -> using defalt"<<std::endl;
 		generate_config();
 		update_from_config();
 	}
 }
+*/
 
 int kbhit(void) {
     struct termios oldt, newt;
@@ -166,10 +149,6 @@ void key_check() {
     while (1) {
 	if (kbhit()) {
 	    char cur_char = getchar();
-	    if (cur_char == 'u' || cur_char == 'U') {
-	    	std::cout << "Updating variables from config file..." << std::endl;
-	    	update_config = true;
-	    }
 	    if (cur_char == 32) {
 			if (!pause_check) {
 				std::cout << "Pausing..." << std::endl;
@@ -562,7 +541,8 @@ std::vector<std::vector<cv::Point> > histogram_error_detect(std::vector<std::vec
 
 int main()
 {
-	update_from_config();
+	//generate_config();
+	//update_from_config();
     std::thread first(key_check);
     std::shared_ptr<vivacity::Debug> debug(new vivacity::Debug());
     std::shared_ptr<vivacity::ConfigManager> cfg_mgr(new vivacity::ConfigManager(debug, "config.xml"));
@@ -570,10 +550,6 @@ int main()
     cv::Mat op_box;
 	cur_iteration = 0;
 	while (debug->procinput(image, pause_check)) {
-		if (update_config) {
-			update_config = false;
-			update_from_config();
-		}
 	    if (pause_check == false) {
 			cur_iteration++;
 			segnet_output = segnet.label(image, ch_des);
@@ -632,8 +608,7 @@ int main()
 									 cv::LINE_8,
 									 cv::noArray(),
 									 0,
-									 cv::Point(0, 0)); 
-					*/
+									 cv::Point(0, 0)); */
 					val_count++;
 					}
 				}
